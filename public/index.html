@@ -292,6 +292,41 @@
     </div>
     <p class="error-msg" id="login-error"></p>
     <button class="btn btn-primary btn-full" style="margin-top:1.25rem" onclick="doLogin()" id="login-btn">Sign in</button>
+    <p style="text-align:center;margin-top:1.25rem;font-size:13px;color:var(--text-muted)">First time? <a href="#" onclick="showSetup()" style="color:var(--accent);text-decoration:none;font-weight:500">Create your manager account</a></p>
+  </div>
+</div>
+
+<!-- SETUP SCREEN -->
+<div id="setup-screen" style="display:none;min-height:100vh;align-items:center;justify-content:center;padding:2rem">
+  <div class="login-card" style="max-width:420px">
+    <div class="login-logo">
+      <div class="login-logo-mark">IT</div>
+      <div class="login-logo-text">
+        <strong>Innotrans 2026</strong>
+        <span>First-time setup</span>
+      </div>
+    </div>
+    <h1 class="login-title">Create manager account</h1>
+    <p class="login-sub" style="margin-bottom:1.5rem">This is a one-time step to set up your account. You'll need the admin secret you set in Netlify.</p>
+    <div class="field">
+      <label>Your full name</label>
+      <input type="text" id="setup-name" placeholder="e.g. Sophie Lang">
+    </div>
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="setup-email" placeholder="your@email.com">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="setup-password" placeholder="Choose a strong password">
+    </div>
+    <div class="field">
+      <label>Admin secret</label>
+      <input type="password" id="setup-secret" placeholder="The ADMIN_SECRET you set in Netlify">
+    </div>
+    <p class="error-msg" id="setup-error"></p>
+    <button class="btn btn-primary btn-full" style="margin-top:1.25rem" onclick="doSetup()" id="setup-btn">Create account</button>
+    <p style="text-align:center;margin-top:1rem;font-size:13px;color:var(--text-muted)"><a href="#" onclick="showLogin()" style="color:var(--accent);text-decoration:none">Back to sign in</a></p>
   </div>
 </div>
 
@@ -512,6 +547,39 @@ let currentImageType = null;
 function getToken() { return sessionStorage.getItem('it_token'); }
 function setToken(t) { sessionStorage.setItem('it_token', t); }
 function clearToken() { sessionStorage.removeItem('it_token'); }
+
+function showSetup() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('setup-screen').style.display = 'flex';
+}
+function showLogin() {
+  document.getElementById('setup-screen').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+}
+
+async function doSetup() {
+  const name = document.getElementById('setup-name').value.trim();
+  const email = document.getElementById('setup-email').value.trim();
+  const password = document.getElementById('setup-password').value;
+  const adminSecret = document.getElementById('setup-secret').value;
+  const err = document.getElementById('setup-error');
+  const btn = document.getElementById('setup-btn');
+  if (!name || !email || !password || !adminSecret) { err.textContent = 'Please fill in all fields.'; return; }
+  err.textContent = '';
+  btn.innerHTML = '<span class="spinner-inline"></span> Creating account…';
+  btn.disabled = true;
+  try {
+    await api('/api/auth?action=register', { method: 'POST', body: JSON.stringify({ name, email, password, role: 'manager', adminSecret }) });
+    showLogin();
+    document.getElementById('login-email').value = email;
+    document.getElementById('login-error').style.color = 'var(--green)';
+    document.getElementById('login-error').textContent = 'Account created — please sign in.';
+  } catch(e) {
+    err.textContent = e.message;
+  }
+  btn.innerHTML = 'Create account';
+  btn.disabled = false;
+}
 
 async function api(path, options = {}) {
   const token = getToken();
