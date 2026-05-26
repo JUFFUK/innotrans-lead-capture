@@ -257,14 +257,65 @@
   .admin-user-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 0.5px solid var(--border); }
   .admin-user-row:last-child { border-bottom: none; }
 
-  @media (max-width: 600px) {
-    .grid-2 { grid-template-columns: 1fr; }
-    .grid-4 { grid-template-columns: repeat(2, 1fr); }
-    .topbar { padding: 0 1rem; }
+  @media (max-width: 640px) {
+    /* Layout */
+    .grid-2 { grid-template-columns: 1fr; gap: 0; }
+    .grid-4 { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .main { padding: 0.75rem; }
+    .card { padding: 1rem; margin-bottom: 0.75rem; }
+
+    /* Topbar — compact on mobile */
+    .topbar { padding: 0 0.75rem; height: auto; min-height: 54px; flex-wrap: wrap; gap: 6px; padding-top: 8px; padding-bottom: 8px; }
+    .topbar-left { gap: 8px; }
+    .topbar-title { font-size: 13px; }
     .topbar-sub { display: none; }
-    .main { padding: 1rem; }
-    .filter-bar { flex-direction: column; align-items: stretch; }
-    .filter-bar input { min-width: unset; }
+    .user-name { display: none; }
+    .role-badge { display: none; }
+
+    /* Nav tabs — full width, equal split */
+    .nav-tabs { width: 100%; }
+    .nav-tab { flex: 1; justify-content: center; font-size: 12px; padding: 7px 8px; }
+
+    /* Fields — full width, more breathing room */
+    .field { margin-bottom: 12px; }
+    .field input, .field select, .field textarea {
+      font-size: 16px; /* prevents iOS zoom on focus */
+      padding: 12px 14px;
+    }
+    .field label { font-size: 11px; margin-bottom: 6px; }
+
+    /* Checkboxes — single column on mobile */
+    .check-group { gap: 6px; }
+    .check-label { font-size: 13px; padding: 8px 12px; width: 100%; }
+
+    /* Buttons — full width on mobile */
+    .btn-primary, .btn-purple { width: 100%; justify-content: center; padding: 13px; font-size: 15px; }
+    .btn { padding: 10px 14px; }
+
+    /* Scan zone — taller tap target */
+    .scan-zone { padding: 2rem 1rem; }
+
+    /* Metrics */
+    .metric { padding: 0.75rem 0.5rem; }
+    .metric-val { font-size: 22px; }
+    .metric-lbl { font-size: 10px; }
+
+    /* Filter bar */
+    .filter-bar { flex-direction: column; align-items: stretch; gap: 8px; }
+    .filter-bar input, .filter-bar select { width: 100%; min-width: unset; font-size: 16px; }
+    .filter-bar > div { display: flex; gap: 8px; }
+    .filter-bar .btn-success, .filter-bar .btn-sm { flex: 1; justify-content: center; }
+
+    /* Lead cards */
+    .lead-card { padding: 0.875rem 1rem; }
+    .lead-name { font-size: 14px; }
+
+    /* Save/clear row */
+    #view-capture .card:last-child > div:last-of-type { flex-direction: column; align-items: stretch; }
+    #view-capture .card:last-child > div:last-of-type .btn:not(.btn-primary) { width: 100%; justify-content: center; }
+
+    /* Login card */
+    .login-card { padding: 2rem 1.25rem; }
   }
 </style>
 </head>
@@ -463,8 +514,8 @@
           <textarea id="f-notes" placeholder="Meeting highlights, specific requirements, any context…"></textarea>
         </div>
 
-        <div style="display:flex;gap:10px;align-items:center;margin-top:4px">
-          <button class="btn btn-primary" onclick="saveLead()" id="save-btn">
+        <div style="display:flex;gap:10px;align-items:center;margin-top:4px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="saveLead()" id="save-btn" style="flex:1;min-width:140px;justify-content:center">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
             Save lead
           </button>
