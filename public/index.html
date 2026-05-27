@@ -651,7 +651,7 @@
     const isDark = theme === 'dark';
     // Update all logo images
     document.querySelectorAll('.brand-logo').forEach(el => {
-      el.src = isDark ? LOGO_DARK : LOGO_LIGHT;
+      if (el) el.src = isDark ? LOGO_DARK : LOGO_LIGHT;
     });
     // Toggle button icon
     const btn = document.getElementById('theme-toggle');
@@ -1032,8 +1032,11 @@ function loadAdminSummary() {
 }
 
 checkSession();
-const savedTheme = localStorage.getItem('it_theme') || 'dark';
-applyTheme(savedTheme);
+// Initialise theme after DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+  const savedTheme = localStorage.getItem('it_theme') || 'dark';
+  applyTheme(savedTheme);
+});
 </script>
 </body>
 </html>
