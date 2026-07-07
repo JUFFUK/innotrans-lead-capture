@@ -1,91 +1,163 @@
-import { getStore } from "@netlify/blobs";
+const ALLOWED_ORIGINS = new Set([
+  'https://leads.trelleborg.one',
+  'https://trelleborg.one'
+]);
 
-function getBlobStore() {
-  if (Netlify.env.get("CONTEXT") === "production") {
-    return getStore("innotrans-leads");
-  }
-  return getStore({ name: "innotrans-leads", consistency: "strong" });
+function corsHeaders(origin) {
+  const allowed = ALLOWED_ORIGINS.has(origin) ? origin : ALLOWED_ORIGINS.values().next().value;
+  return {
+    'Access-Control-Allow-Origin': allowed,
+    'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    'Vary': 'Origin'
+  };
 }
 
-async function getSession(req) {
-  const authHeader = req.headers.get("authorization") || "";
-  const token = authHeader.replace("Bearer ", "").trim();
+function json(data, status = 200, origin = '') {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders(origin) }
+  });
+}
+
+async function getSession(request, env) {
+  const token = (request.headers.get("authorization") || "").replace("Bearer ", "").trim();
   if (!token) return null;
-  const userStore = Netlify.env.get("CONTEXT") === "production"
-    ? getStore("innotrans-users")
-    : getStore({ name: "innotrans-users", consistency: "strong" });
-  const session = await userStore.get("session:" + token, { type: "json" });
+  const session = await env.USERS.get("session:" + token, { type: "json" });
   if (!session || Date.now() > session.expiry) return null;
   return session;
 }
 
-export default async (req) => {
-  const session = await getSession(req);
-  if (!session) {
-    return Response.json({ error: "Unauthorised" }, { status: 401 });
+function tempToLeadStatus(temp) {
+  if (temp === "hot") return "IN_PROGRESS";
+  if (temp === "warm") return "OPEN";
+  return "NEW";
+}
+
+async function syncToHubSpot(lead, token) {
+  const descParts = [];
+  if (lead.products && lead.products.length) descParts.push("Product interest: " + lead.products.join(", "));
+  if (lead.followup) descParts.push("Follow-up: " + lead.followup);
+  if (lead.notes) descParts.push("Notes: " + lead.notes);
+  descParts.push("Captured by: " + (lead.capturedByName || lead.capturedBy || "Unknown"));
+  descParts.push("Source: Innotrans 2026, Berlin");
+  if (lead.scanned) descParts.push("Business card scanned: Yes");
+
+  const properties = {
+    firstname: lead.fname || "",
+    lastname: lead.lname || "",
+    email: lead.email || "",
+    phone: lead.phone || "",
+    company: lead.company || "",
+    jobtitle: lead.title || "",
+  };
+
+  let contactId = null;
+  const searchRes = await fetch("https://api.hubapi.com/crm/v3/objects/contacts/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+    body: JSON.stringify({
+      filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: lead.email }] }],
+      properties: ["id", "email"],
+      limit: 1,
+    }),
+  });
+  const searchText = await searchRes.text();
+  if (!searchRes.ok) throw new Error("HubSpot search failed (" + searchRes.status + "): " + searchText);
+  const searchData = JSON.parse(searchText);
+  if (searchData.results && searchData.results.length > 0) {
+    contactId = searchData.results[0].id;
   }
 
-  const url = new URL(req.url);
-  const method = req.method;
-  const store = getBlobStore();
+  let hubspotContactId;
+  if (contactId) {
+    const updateRes = await fetch("https://api.hubapi.com/crm/v3/objects/contacts/" + contactId, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify({ properties }),
+    });
+    const updateText = await updateRes.text();
+    if (!updateRes.ok) throw new Error("HubSpot update failed (" + updateRes.status + "): " + updateText);
+    hubspotContactId = contactId;
+  } else {
+    const createRes = await fetch("https://api.hubapi.com/crm/v3/objects/contacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify({ properties }),
+    });
+    const createText = await createRes.text();
+    if (!createRes.ok) throw new Error("HubSpot create failed (" + createRes.status + "): " + createText);
+    const created = JSON.parse(createText);
+    hubspotContactId = created.id;
+  }
 
-  if (method === "GET") {
-    const { blobs } = await store.list();
-    const leads = await Promise.all(
-      blobs.map(b => store.get(b.key, { type: "json" }))
-    );
+  return hubspotContactId;
+}
+
+export async function onRequest({ request, env }) {
+  const origin = request.headers.get('Origin') || '';
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders(origin) });
+  }
+
+  const session = await getSession(request, env);
+  if (!session) return json({ error: "Unauthorised" }, 401, origin);
+
+  const url = new URL(request.url);
+
+  if (request.method === "GET") {
+    const list = await env.LEADS.list();
+    const leads = await Promise.all(list.keys.map(k => env.LEADS.get(k.name, { type: "json" })));
     const valid = leads.filter(Boolean);
-    const filtered = session.role === "manager"
-      ? valid
-      : valid.filter(l => l.capturedBy === session.userId);
+    const filtered = session.role === "manager" ? valid : valid.filter(l => l.capturedBy === session.userId);
     filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    return Response.json(filtered);
+    return json(filtered, 200, origin);
   }
 
-  if (method === "POST") {
-    const body = await req.json();
+  if (request.method === "POST") {
+    const body = await request.json();
     const id = "lead_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
-    const lead = {
-      id,
-      ...body,
-      capturedBy: session.userId,
-      capturedByName: session.name,
-      synced: false,
-      createdAt: new Date().toISOString()
-    };
-    await store.setJSON(id, lead);
-    return Response.json(lead, { status: 201 });
+    const lead = { id, ...body, capturedBy: session.userId, capturedByName: session.name, synced: false, createdAt: new Date().toISOString() };
+    await env.LEADS.put(id, JSON.stringify(lead));
+    return json(lead, 201, origin);
   }
 
-  if (method === "PATCH") {
+  if (request.method === "PATCH") {
     const id = url.searchParams.get("id");
-    if (!id) return Response.json({ error: "Lead ID required" }, { status: 400 });
-    const existing = await store.get(id, { type: "json" });
-    if (!existing) return Response.json({ error: "Lead not found" }, { status: 404 });
-    if (session.role !== "manager" && existing.capturedBy !== session.userId) {
-      return Response.json({ error: "Forbidden" }, { status: 403 });
-    }
-    const updates = await req.json();
+    if (!id) return json({ error: "Lead ID required" }, 400, origin);
+    const existing = await env.LEADS.get(id, { type: "json" });
+    if (!existing) return json({ error: "Lead not found" }, 404, origin);
+    if (session.role !== "manager" && existing.capturedBy !== session.userId) return json({ error: "Forbidden" }, 403, origin);
+
+    const updates = await request.json();
     const updated = { ...existing, ...updates, id, updatedAt: new Date().toISOString() };
-    await store.setJSON(id, updated);
-    return Response.json(updated);
-  }
 
-  if (method === "DELETE") {
-    const id = url.searchParams.get("id");
-    if (!id) return Response.json({ error: "Lead ID required" }, { status: 400 });
-    const existing = await store.get(id, { type: "json" });
-    if (!existing) return Response.json({ error: "Lead not found" }, { status: 404 });
-    if (session.role !== "manager" && existing.capturedBy !== session.userId) {
-      return Response.json({ error: "Forbidden" }, { status: 403 });
+    if (updates.synced === true) {
+      const HUBSPOT_TOKEN = env.HUBSPOT_TOKEN;
+      if (!HUBSPOT_TOKEN) return json({ error: "HUBSPOT_TOKEN not set in Cloudflare environment" }, 500, origin);
+      try {
+        const hubspotContactId = await syncToHubSpot(updated, HUBSPOT_TOKEN);
+        updated.hubspotContactId = hubspotContactId;
+        updated.syncedAt = new Date().toISOString();
+      } catch (e) {
+        return json({ error: e.message }, 502, origin);
+      }
     }
-    await store.delete(id);
-    return Response.json({ success: true });
+
+    await env.LEADS.put(id, JSON.stringify(updated));
+    return json(updated, 200, origin);
   }
 
-  return Response.json({ error: "Method not allowed" }, { status: 405 });
-};
+  if (request.method === "DELETE") {
+    const id = url.searchParams.get("id");
+    if (!id) return json({ error: "Lead ID required" }, 400, origin);
+    const existing = await env.LEADS.get(id, { type: "json" });
+    if (!existing) return json({ error: "Lead not found" }, 404, origin);
+    if (session.role !== "manager" && existing.capturedBy !== session.userId) return json({ error: "Forbidden" }, 403, origin);
+    await env.LEADS.delete(id);
+    return json({ success: true }, 200, origin);
+  }
 
-export const config = {
-  path: "/api/leads"
-};
+  return json({ error: "Method not allowed" }, 405, origin);
+}
